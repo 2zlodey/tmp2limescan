@@ -519,44 +519,40 @@ int main(int argc, char** argv)
 ///////////////////////////////////// main loop
   short delay=0, delaylimit=4;  //
   setgain(0);
+  short shift[80];
+  shift[0]=0;
+  shift[24]=10;
+  shift[48]=10;
+  shift[72]=16;
   int dtmp=0;
   int dtmp1=0;
   int glvl=16;
   int xxx=0;
-  int shift = 0; // SHIFT DBM (black hole);
   int prevxmblock;
   int autosetlevel(){
     int min=10*10, max=1000*1000;
-    int curlevel=getgain();
+    int curlevel=nowgain;
     if (xmblock>min && xmblock<max) {delay=0;return curlevel;} else {delay++;}
     if (delay>=delaylimit){
+//      delay=0;
       if (xmblock<min) {if (curlevel==72) return 72; else setgain(curlevel+24);return getgain();}
       if (xmblock>max) {if (curlevel==0) return 0; else setgain(curlevel-24);return getgain();}
-      delay=0;
     }  
   }
-  
   if (maxnumber>0) printf("alg=%d. Iterations counter : %lld\n",alg,maxnumber);
   else if (maxnumber<0) printf("alg=%d. infinity loop. \n",alg);
+///////////////////////////////////////////////////////////
   while( maxnumber!=0 ) {   //    start main loop
     maxnumber--;
     nb_samples = LMS_RecvStream( &rx_stream, buff, buffer_size, NULL, 1000 );
-    if ( nb_samples < 0 ) {
-	    fprintf(stderr, "LMS_RecvStream() : %s\n", LMS_GetLastErrorMessage());
-    	break;
-    }
-    
     nowgain=getgain();
-    if (nowgain==72) shift=16; else shift=10;
-    if (nowgain==0) shift=0;   
     prevxmblock=xmblock;
     minexmblock();
     if (nowgain!=autosetlevel() || delay>0) xmblock=prevxmblock ; 
     if (xmblock > 0) sbl=round(10*log10(round(xmblock)/1000000));else sbl=0;
-    if (alg!=0 && alg!=5) fprintf(stderr, "%.0f,%d,%d,%d,0\n",round(sqrt(xmblock)),sbl-nowgain+shift,nowgain,sbl);   
-    
-        
-  } /////////////////////// end mainloop	
+    if (alg!=0 && alg!=5) 
+      fprintf(stderr, "%.0f,%d,%d,%d,0\n",round(sqrt(xmblock)),sbl-nowgain+shift[nowgain],nowgain,sbl);               
+  } /////////////////////// end mainloop	/////////////////
   LMS_StopStream(&rx_stream);
   LMS_DestroyStream(device, &rx_stream);
   free( buff );
