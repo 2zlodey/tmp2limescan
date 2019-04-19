@@ -1,16 +1,20 @@
 /*9.9.18*/
-
+#include <unistd.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include <lime/LimeSuite.h>
+#include "wiringPi.h"
+#include "wiringPiI2C.h"
 #define INIFILENAME "./limesdr_debug.init"
-
+#define i2c_adr 0x22
+#define i2c_delay 50000
 ///////////////////////////////////
+int debug=0;
 //int dumpcnt=0;
-struct inis {
+struct inis { //for init-file
   char name[25];
   double value;
 };
@@ -74,10 +78,10 @@ int main(int argc, char** argv)
   double gain = 0;
   unsigned int freq = 1940000000;
   double bandwidth_calibrating = 8e6;
-  double sample_rate = 1400000;
+  double sample_rate = 5000000;
   lms_device_t* device = NULL;
   double host_sample_rate;
-  unsigned int buffer_size = 1000*10;
+  unsigned int buffer_size = 1000*50;
   unsigned int device_i = 0;
   unsigned int channel = 0;
   size_t antenna = 3; //  1-RX LNA_H port   2-RX LNA_L port  3-RX LNA_W port
@@ -113,7 +117,7 @@ int main(int argc, char** argv)
   int maxvar=0;
   maxvar=ini2arr(); 
   if (maxvar>0){ //if init-file present:
-//    printf("vsego=%d\n",maxvar);
+//   if (debug) printf("vsego=%d\n",maxvar);
 //    while (i<stringcnt) {printf("name='%s' value='%f'\n",iniar[i].name,iniar[i].value);i++;}  
 //anywhere
     if (doublret("isAlexIni")==0) isAlexIni=lastvalue;
@@ -139,8 +143,8 @@ int main(int argc, char** argv)
   }
 //////////////////////////////////////// from command prompt:
   if ( argc < 2 ) {
-    printf("--usage: %s <OPTIONS>\n", argv[0]);
-    printf("  -f <FREQUENCY>\n"
+   printf("--usage: %s <OPTIONS>\n", argv[0]);
+   printf("  -f <FREQUENCY>\n"
       "  -b <BANDWIDTH_CALIBRATING> (default: 8e6)\n"
       "  -s <SAMPLE_RATE> (default: 5e6)\n"
       "  -g <GAIN_dB> range [0, 73] (default: 0)\n"
@@ -180,7 +184,7 @@ int main(int argc, char** argv)
   alg=1;
 
 
-  if (alg==1) {buffer_size=36000;}
+  if (alg==1) {buffer_size=50*1000;}
   else if (alg==2 || alg==0) {
     buffer_size=18000;
     sample_rate = sr2;
@@ -202,7 +206,7 @@ int main(int argc, char** argv)
       perror("fopen()");
       return 1;
     }
-  } else stdout = stderr;
+  } else fd = stderr;
 
 /////////////////////////////// function of limeutils
   lms_range_t curbwr;
@@ -245,7 +249,7 @@ int main(int argc, char** argv)
       fprintf(stderr, "LMS_GetSampleRate() : %s\n", LMS_GetLastErrorMessage());
       return -1;
     } else {
-      printf("Host=%2.1fMHz (%lf) RF=%2.1fMHz(%lf)\n",round(hosthz/1000)/1000,hosthz,round(rfhz/1000)/1000,rfhz);
+     if (debug) printf("Host=%2.1fMHz (%lf) RF=%2.1fMHz(%lf)\n",round(hosthz/1000)/1000,hosthz,round(rfhz/1000)/1000,rfhz);
       return round(hosthz/1000);
     }
   }
@@ -258,13 +262,14 @@ int main(int argc, char** argv)
         fprintf(stderr, "LMS_GetSampleRate() : %s\n", LMS_GetLastErrorMessage());
         return -1;
       } else {
-        printf("Host=%5.3fMHz RF=%lf\n",round(hosthz/1000)/1000,rfhz);
+       if (debug) printf("Host=%5.3fMHz RF=%lf\n",round(hosthz/1000)/1000,rfhz);
         return 0; 
       }
     }
   }
   int setgain(int db){ //set gain in DB & return gain
     if ( db >= 0 ) {
+    if (debug) printf("set gain@%ddB",db);
       if ( LMS_SetGaindB( device, 0, 0, db ) < 0 ) {
         fprintf(stderr, "LMS_SetGaindB() : %s\n", LMS_GetLastErrorMessage());
         return -1;
@@ -312,39 +317,35 @@ int main(int argc, char** argv)
   lms_info_str_t device_list[ device_count ];
   zerror(LMS_GetDeviceList(device_list));
 
-  printf(">device list recived?\n");
+ if (debug) printf(">device list recived?\n");
   zerror( LMS_Open(&device, device_list[ device_i ], NULL));
 
-  printf(">device pointer returned?\n>RESET!..\n");
+ if (debug) printf(">device pointer returned?\n>RESET!..\n");
   zerror(LMS_Reset(device)); //   reset
 
-  printf(">Seting DEFAULT...\n");
+ if (debug) printf(">Seting DEFAULT...\n");
   zerror(LMS_Init(device));  //  default
 
   zerror(LMS_EnableChannel(device, LMS_CH_RX, 0, true)); //enable RX-0 channel
-  printf(">Seting channel to RX-0\n");
+ if (debug) printf(">Seting channel to RX-0\n");
 
   if (alg==2) sample_rate=sr2;
   zerror(LMS_SetSampleRate(device, sample_rate, 0));
-  printf(">Seting samplerate =%9.0f done!\n",sample_rate);
+ if (debug) printf(">Seting samplerate =%9.0f done!\n",sample_rate);
 //  LMS_GetSampleRate(device, LMS_CH_RX, 0, &host_sample_rate, NULL );
 
   zerror(LMS_SetAntenna( device, LMS_CH_RX, 0, 3 ));//1=RX LNA_H 2=RX LNA_L 3=RX LNA_W 
-  printf(">Seting antenna. done!\n");//
+ if (debug) printf(">Seting antenna. done!\n");//
 
-  if ((alg==2 || alg==4 ) & isAlexIni) {
-    printf(">>try Alex config load:\n");
-    zerror(LMS_LoadConfig(device,"./lowbw.ini"));
-  }
 
   zerror(LMS_Calibrate( device, LMS_CH_RX, 0, bandwidth_calibrating, 0 ));
-  printf(">Calibrating. done!\n");
+ if (debug) printf(">Calibrating. done!\n");
 
   zerror(LMS_SetLOFrequency( device, LMS_CH_RX, 0, freq));
-  printf(">Seting freq =  %d done!\n",freq);
+ if (debug) printf(">Seting freq =  %d done!\n",freq);
 
   zerror(LMS_SetGaindB( device, LMS_CH_RX, 0, gain ));
-  printf(">Set gain to %2.0f done!\n",gain);
+ if (debug) printf(">Set gain to %2.0f done!\n",gain);
 
 ///////////// init & start stream
 	lms_stream_t rx_stream = {
@@ -354,12 +355,15 @@ int main(int argc, char** argv)
 		.isTx = LMS_CH_RX,
 		.dataFmt = LMS_FMT_I16
 	};
+ if (debug) printf("setup stream:");
 
 	if ( LMS_SetupStream(device, &rx_stream) < 0 ) {
 		fprintf(stderr, "LMS_SetupStream() : %s\n", LMS_GetLastErrorMessage());
 		return 1;
 	}	
+ if (debug) printf("ok\nstart stream:");
 	LMS_StartStream(&rx_stream);
+ if (debug) printf("ok.\n");
 	
 ////////////////////////////// our functional ///////////////////////////////
   int dif(int a, int b){
@@ -379,180 +383,187 @@ int main(int argc, char** argv)
   }                  
 
   int minexmblock(){ //// find XMBLOCK from alg(0-3)
-    ii=0;           //bufer pointer init
-    xmblock= -1;    //start craft from non zero - xmbloc -- global variable !!!
-    if (alg==0){   ////////////////////// alg0
-		  fwrite( buff, sizeof( *buff ), nb_samples, fd );
-		  fflush( fd );
-    }    ////////////////////// end alg0 xmblock=1;
-    if (alg==1){     ////////////////////// alg1
-      maxpwr=0;
-      while (ii<buffer_size){
-        if (readpwr()>signalthreshold_m1) {
-          curpwr=skrpwr(blocksize);
-          if (maxpwr<curpwr) maxpwr=curpwr;
-        }
+    double maxpwr=0;
+    while (ii<buffer_size){
+      if (readpwr()>signalthreshold_m1) {
+        curpwr=skrpwr(blocksize);
+        if (maxpwr<curpwr) maxpwr=curpwr;
       }
-      xmblock=maxpwr; // max from average PWR (sq. of AMP )
-    }//  /////////////////////////  end if alg1
-    if (alg==2) {    ////////////////////// alg2
-      int signalthreshold2=signalthreshold*signalthreshold;  //
-      int skrcount=0;           // couter of block in packet
-      long int prevskr = 0;     //  prev skr value
-      long int curskr = 0;      //  curent skr value 
-      long int tmpskr =0; 
-      ii = 0;                   // stream pointer  
-      while (ii<buffer_size-skrblock){ 
-        prevskr=skrpwr(skrblock);
-        curskr=skrpwr(skrblock); 
-        skrcount=0;
-        if (dif(prevskr,curskr)==1 && curskr>prevskr && curskr>signalthreshold2){
-//          while ( !(dif(prevskr,curskr)==1 && prevskr>curskr) && skrcount<oursize*2 && ii<buffer_size-skrblock*5){
-          while ( (dif(prevskr,curskr)==0 || prevskr<=curskr) && skrcount<oursize*2 && ii<buffer_size-skrblock*5){
-            skrcount++;
-            prevskr=curskr;
-            curskr=skrpwr(skrblock);
-          }
-          printf("%d\n",skrcount);
-          if (abs(skrcount-oursize)<deltablock && prevskr>signalthreshold2 && ii<buffer_size-skrblock) tmpskr=prevskr;
-        }
-        if (xmblock<tmpskr) xmblock=tmpskr;        
-      }  
-    } /////////////////       end of alg2
-    if (alg==20) {    ////////////////////// alg2
-      int signalthreshold2=signalthreshold*signalthreshold;  //
-      int skrcount=0;  // couter of block in packet
-      long int prevskr = 0;     //  prev skr value
-      long int curskr = 0;      //  curent skr value 
-      long int tmpskr =0; 
-      ii = 0;          // stream pointer  
-      while (ii<buffer_size-skrblock){ 
-        if (readpwr()>=signalthreshold2){
-          curskr=skrpwr(skrblock); 
-          prevskr=curskr; 
-          skrcount=0;
-          while (dif(prevskr,curskr)==1 && skrcount<oursize*2 && ii<buffer_size-skrblock*5){
-            skrcount++;
-            prevskr=curskr;
-            curskr=skrpwr(skrblock);
-          }
-          if (abs(skrcount-oursize)<deltablock && prevskr>signalthreshold2 && ii<buffer_size-skrblock) tmpskr=prevskr;
-//          printf("%d\n",skrcount);
-        }
-        if (xmblock<tmpskr) xmblock=tmpskr;
-      }
-    } /////////////////       end of alg20
-    if (alg==3) {    ////////////////////// alg3 - clone 2
-      int dif3(long int a, long int b){
-        if (abs(a-b) < m3dif*a) return 1;
-        else return 0; 
-      }
-      int m3signalthreshold2=m3signalthreshold*m3signalthreshold;  //
-      int skrcount=0;  // couter of block in packet
-      long int prevskr = 0;     //  prev skr value
-      long int curskr = 0;      //  curent skr value 
-      long int tmpskr =0; 
-      ii = 0;          // stream pointer  
-      while (ii<buffer_size-m3skrblock){ 
-        if (readpwr()>=m3signalthreshold2){        
-          curskr=skrpwr(m3skrblock);
-          prevskr=curskr;
-          skrcount=1;
-          long int maxskr=0;
-          while (dif3(prevskr,curskr)==1 && skrcount<m3oursize*2 && ii<buffer_size-m3skrblock){
-            if (maxskr<curskr) maxskr=curskr;
-            skrcount++;
-            prevskr=curskr;
-            curskr=skrpwr(m3skrblock);
-          }
-          if (abs(skrcount-m3oursize)< m3deltablock && prevskr>m3signalthreshold2 && ii<buffer_size-m3skrblock) tmpskr=maxskr;
-//printf("size=%d %ld %ld\n",skrcount,curskr,prevskr);
-        }
-        if (xmblock<tmpskr) xmblock=tmpskr;
-      }
-    } /////////////////       end of alg
-
-    if (alg==30){     //////////////////////START alg3
-      int signalthreshold2=signalthreshold*signalthreshold; 
-      int curpointer=0;       //poinet 2 start of period
-      int sbz05(){
-        int pointer=ii;
-        long int sbzret=0;
-        while ( ii!=(pointer+subperiod/zoom) && ii<buffer_size ) sbzret+=readpwr();
-        return round(sqrt(sbzret/(subperiod/zoom)));
-      }
-      int t;
-      if (debugcnt!=0){ // out 2 console with period=periodsize & zoom 10-optimum
-        while (ii<buffer_size){
-          for (t=0; t<10*zoom; t++) {
-            if (sbz05()>signalthreshold) { printf("#");}
-            else {printf("-");}
-          }
-          printf("\n");        // 
-        }//end while ii<buffer_size
-      }
-    } // /////  xmblock=1  ////   end alg3  
-    if (alg==4){     ////////////////////// alg1
-      maxpwr=0;
-      while (ii<buffer_size){
-        if (readpwr()>signalthreshold_m1) {
-          curpwr=skrpwr(blocksize);
-          if (maxpwr<curpwr) maxpwr=curpwr;
-        }
-      }
-      xmblock=maxpwr; // max from average PWR (sq. of AMP )
     }
-    if (alg==5){   ////////////////////// alg5
-      maxpwr=0;
-      while (ii<buffer_size){
-        if (readpwr()>signalthreshold_m1) {
-          curpwr=skrpwr(blocksize);
-          if (maxpwr<curpwr) maxpwr=curpwr;
-        }
-      }
-      xmblock=maxpwr; // max from average PWR (sq. of AMP )
-		  fwrite( buff, sizeof( *buff ), nb_samples, fd );
-		  fflush( fd );
-    }    ////////////////////// end alg5 xmblock=1;
-    return xmblock;  
+    xmblock=maxpwr; // max from average PWR (sq. of AMP )
+   printf("---->>>>>>>>>>\n");
+    return maxpwr;
   }
-///////////////////////////////////// main loop
-  short delay=0, delaylimit=4;  //
-  setgain(0);
-  short shift[80];
-  shift[0]=0;
-  shift[24]=10;
-  shift[48]=10;
-  shift[72]=16;
-  int dtmp=0;
-  int dtmp1=0;
-  int glvl=16;
-  int xxx=0;
-  int prevxmblock;
+//////// i2c
+  union i2c_smbus_data{
+    uint8_t  byte ;
+    uint16_t word ;
+    uint8_t  block [34] ;// block [0] is used for length + one more for PEC
+  };
+  int devlna=wiringPiI2CSetup(i2c_adr);
+  usleep(i2c_delay);
+  if (debug) printf("main.I2C init device ok.\n"); 
+  
+  wiringPiI2CWriteReg8 (devlna, 0, 0 );usleep(i2c_delay);
+  wiringPiI2CWriteReg8 (devlna, 9, 255 );usleep(i2c_delay);
+  if (debug) printf("main.I2C registr init ok.\n");
+
+  ///// LNA on/off 
+  int extlnaon(){
+      int reg=wiringPiI2CReadReg8(devlna,9);usleep(i2c_delay);
+      if (reg>127) wiringPiI2CWriteReg8 (devlna, 9, (reg-128));usleep(i2c_delay);
+      if (debug) printf("    LNA  on.\n");
+  }  // set @channal lna=ON +16dB
+  int extlnaoff(){
+      int reg=wiringPiI2CReadReg8(devlna,9);usleep(i2c_delay);
+      if (reg<=127) wiringPiI2CWriteReg8 (devlna, 9, (reg+128));usleep(i2c_delay);
+      if (debug) printf("    LNA  off.\n");
+  } // set  @channal lna=OFF +0dB
+
+//////   ATT on/off
+  int extatton(){
+      int reg=wiringPiI2CReadReg8(devlna,9);usleep(i2c_delay);
+      wiringPiI2CWriteReg8 (devlna, 9, (reg&135));usleep(i2c_delay);
+      if (debug) printf("    ATT on. -16dB.\n");
+  } // set  @channal att -16dB
+  int extattoff(){
+      int reg=wiringPiI2CReadReg8(devlna,9);usleep(i2c_delay);
+      wiringPiI2CWriteReg8 (devlna, 9, (reg&135+120));usleep(i2c_delay);
+  if (debug) printf("    ATT off  0dB.\n");
+  } // set  @channal att -0dB
+
+////////  BPF/BAND
+  int setfilter(int n){
+    if (n<1 || n>8) n=8;
+    int reg=wiringPiI2CReadReg8(devlna,9);usleep(i2c_delay);
+    int bpf[9]={0,3,1,2,0,4,6,5,7};  //array of bytes for i2c reg
+    wiringPiI2CWriteReg8 (devlna, 9, (reg&248 + bpf[n] ) );usleep(i2c_delay);
+    return (reg&248 + bpf[n] ); // 
+  }
+  int setband(int band){
+    int reg=wiringPiI2CReadReg8(devlna,9);usleep(i2c_delay);
+    int bands[7]={3,5,20,28,8,7,1}; // array of availeble bands
+    int bpf[8] = {3,1,2,0,4,6,5,7}; // array of bytes for i2c reg
+    int i=0;
+    while ( i<7 && bands[i]!=band) i++;
+    wiringPiI2CWriteReg8 (devlna, 9, (reg&248 + bpf[i] ) );usleep(i2c_delay);
+    return i+1; //number of filter BPFn 1-8
+  }
+/////////////////////// autogain
+  int curzone=0;
+  struct zone_t { //
+    double min;
+    double max;
+    int dbshift;
+  };
+  struct zone_t zone[6];
+//zone 0;
+  zone[0].min=100*100;
+  zone[0].max=2000*2000;
+  zone[0].dbshift=-16;
+//zone 1;
+  zone[1].min=100*100;
+  zone[1].max=2000*2000;
+  zone[1].dbshift=0;
+//zone 2;
+  zone[2].min=100*100;
+  zone[2].max=2000*2000;
+  zone[2].dbshift=24;
+//zone 3;
+  zone[3].min=100*100;
+  zone[3].max=2000*2000;
+  zone[3].dbshift=48;
+//zone 4;
+  zone[4].min=200*200;
+  zone[4].max=2000*2000;
+  zone[4].dbshift=72;
+//zone 5;
+  zone[5].min=200*200;
+  zone[5].max=2000*2000;
+  zone[5].dbshift=88;
+//////////////////////////////////////////////////////////////////////////////////
+  int setzone(int z){
+    printf("sz.curzone=%d newzone=%d",curzone,z);
+    if (z<0 ||z>5) {printf("!!!!!!!!!!!error!!!!!!!!!!!!!");return -1;}
+    if (z==0) {setgain(0); extlnaoff(); extatton();}
+    else if (z==5) {setgain(72); extlnaon(); extattoff();} 
+    else {setgain(zone[z].dbshift); extlnaoff(); extattoff();}
+    usleep(i2c_delay);
+    return z;
+  }
+    double lmine(){
+      LMS_RecvStream( &rx_stream, buff, buffer_size, NULL, 1000 );
+      double max,skr;
+      for (int ii=0; ii<buffer_size;ii++){
+        skr+=buff[ii].i*buff[ii].i+buff[ii].q*buff[ii].q;
+        if ((15&(ii+1))==0) {
+          skr=skr/16; 
+          if (max<skr) max=skr;
+          skr=0;
+        }  
+      } 
+      return max;     
+    }
+
   int autosetlevel(){
-    int min=10*10, max=1000*1000;
-    int curlevel=nowgain;
-    if (xmblock>min && xmblock<max) {delay=0;return curlevel;} else {delay++;}
-    if (delay>=delaylimit){
-//      delay=0;
-      if (xmblock<min) {if (curlevel==72) return 72; else setgain(curlevel+24);return getgain();}
-      if (xmblock>max) {if (curlevel==0) return 0; else setgain(curlevel-24);return getgain();}
-    }  
-  }
-  if (maxnumber>0) printf("alg=%d. Iterations counter : %lld\n",alg,maxnumber);
-  else if (maxnumber<0) printf("alg=%d. infinity loop. \n",alg);
-///////////////////////////////////////////////////////////
-  while( maxnumber!=0 ) {   //    start main loop
-    maxnumber--;
-    nb_samples = LMS_RecvStream( &rx_stream, buff, buffer_size, NULL, 1000 );
-    nowgain=getgain();
-    prevxmblock=xmblock;
-    minexmblock();
-    if (nowgain!=autosetlevel() || delay>0) xmblock=prevxmblock ; 
+printf("------------------------\n");
+    double qmine(){
+      LMS_RecvStream( &rx_stream, buff, 1024, NULL, 1000 );
+      double max,skr;
+      for (int ii=0; ii<1024;ii++){
+        skr+=buff[ii].i*buff[ii].i+buff[ii].q*buff[ii].q;
+        if ((15&(ii+1))==0) {
+          skr=skr/16; 
+          if (max<skr) max=skr;
+          skr=0;
+        }  
+      } 
+      return max;     
+    }
+
+    double tmpxbl=qmine();         
+    while (tmpxbl < zone[curzone].min || tmpxbl > zone[curzone].max  ){
+      tmpxbl=qmine();  //mine level
+printf("---->>>>>>>>>>\n");
+
+      if (tmpxbl < zone[curzone].min ) { //nead ampl.
+        if (curzone<5)  curzone=setzone(curzone+1); //we can? we do!
+        else {tmpxbl=zone[curzone].min;return -1;} //we lost him! 
+      } 
+//-------------------
+      if (tmpxbl > zone[curzone].max ) { //nead att
+        if (curzone>0) curzone=setzone(curzone-1); //we can? we do!
+        else {tmpxbl=zone[curzone].max; return -2;};  //we find him!
+      }
+
+    } //end while
+    return 0;
+  } //end auto
+///////////////////////////////////// main loop
+  short delay=0, delaylimit=3;  //
+  long int prevxmblock=0;
+  curzone=0;
+  setzone(curzone);
+
+  if (maxnumber>0) if (debug) printf("main.alg=%d. Iterations counter : %lld\n",alg,maxnumber);
+  else if (maxnumber<0)if (debug) printf("main.alg=%d. start infinity loop. \n",alg);
+
+////////////////////////////                ///////////
+  while( maxnumber--!=0 ) { //start main loop
+    xmblock=lmine();
+    if (xmblock > zone[curzone].min && xmblock < zone[curzone].max ) delay=0; 
+    else {
+      delay++;
+      xmblock=prevxmblock;
+      if (delay >= delaylimit){delay=0; autosetlevel();}
+    } 
     if (xmblock > 0) sbl=round(10*log10(round(xmblock)/1000000));else sbl=0;
-    if (alg!=0 && alg!=5) 
-      fprintf(stderr, "%.0f,%d,%d,%d,0\n",round(sqrt(xmblock)),sbl-nowgain+shift[nowgain],nowgain,sbl);               
-  } /////////////////////// end mainloop	/////////////////
+//    printf("%lld, %.0fue, %ddB, (shift=%ddB,orig=%d) zone=%d delay=%d\n",maxnumber, round(sqrt(xmblock)), sbl-zone[curzone].dbshift, zone[curzone].dbshift, sbl,curzone,delay);               
+    printf(" %.0f,%d,%d,%d,%d,%d\n",round(sqrt(xmblock)), sbl-zone[curzone].dbshift, zone[curzone].dbshift, sbl,curzone,delay);               
+
+    prevxmblock=xmblock;
+   if (curzone<0 || curzone>5) {return -1; }
+ } /////////////////////// end mainloop	/////////////////
   LMS_StopStream(&rx_stream);
   LMS_DestroyStream(device, &rx_stream);
   free( buff );
